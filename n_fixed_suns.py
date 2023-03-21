@@ -104,6 +104,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--xoffset', type=int)
     parser.add_argument('--yoffset', type=int)
+    parser.add_argument('--clicks', type=int)
     parser.add_argument('--tag', type=int)
     parser.add_argument('--seed', action='store_true')
     parser.add_argument('--save', action='store_true')
@@ -114,6 +115,10 @@ def main():
     args = parser.parse_args()
 
     fname = f"dump{args.tag}.bin"
+    if args.clicks:
+        clicks = args.clicks
+    else:
+        clicks = 130_000_000
 
     if args.load:
         with open(fname, 'rb') as fh:
@@ -132,13 +137,15 @@ def main():
             sys = NSolarSystem.rand_init(v=np.array([1e-6, 1e-6]), n=3)
 
     if not args.load or args.cont:
-        sys.ticktock(130_000_000)
+        sys.ticktock(clicks)
 
     sys.print()
 
     if args.save:
         with open(fname, 'wb') as fh:
-            pickle.dump(sys, fh)
+            p = pickle.Pickler(fh)
+            p.fast = True
+            p.dump(sys)
     
     if args.draw:
         sys.draw_2d()
