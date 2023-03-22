@@ -102,10 +102,10 @@ def timeit(f):
 @timeit
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--xoffset', type=int)
-    parser.add_argument('--yoffset', type=int)
-    parser.add_argument('--clicks', type=int)
-    parser.add_argument('--tag', type=int)
+    parser.add_argument('--xoffset', default=0, type=int)
+    parser.add_argument('--yoffset', default=0, type=int)
+    parser.add_argument('--clicks', default=130_000_000, type=int)
+    parser.add_argument('--tag', default='', type=str)
     parser.add_argument('--seed', action='store_true')
     parser.add_argument('--save', action='store_true')
     parser.add_argument('--load', action='store_true')
@@ -115,10 +115,6 @@ def main():
     args = parser.parse_args()
 
     fname = f"dump{args.tag}.bin"
-    if args.clicks:
-        clicks = args.clicks
-    else:
-        clicks = 130_000_000
 
     if args.load:
         with open(fname, 'rb') as fh:
@@ -137,7 +133,7 @@ def main():
             sys = NSolarSystem.rand_init(v=np.array([1e-6, 1e-6]), n=3)
 
     if not args.load or args.cont:
-        sys.ticktock(clicks)
+        sys.ticktock(args.clicks)
 
     sys.print()
 
