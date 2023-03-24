@@ -1,10 +1,27 @@
 from __future__ import annotations
 
+import os
+import time
 import pickle
 import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as ani
+
+
+def time_taken(start, end):
+    t = end - start
+    s = t % 60
+    m = (t // 60) % 60
+    h = t // 3600
+
+    t_str = f"{s:.3f}s"
+    if m > 0:
+        t_str = f"{m}m " + t_str
+    if h > 0:
+        t_str = f"{h}h " + t_str
+    
+    return t_str
 
 
 class NSolarSystem:
@@ -57,8 +74,16 @@ class NSolarSystem:
                 break
             self.tick(**kwargs)
 
-    def draw_2d(self, savefile='ani.mp4'):
+    def draw_2d(self, ffwd=50_000, step=1, savefile='ani.mp4'):
+        """Plot the trajectory of the current object
+
+        Args:
+            ffwd (int, optional): _description_. Defaults to 50_000.
+            step (int, optional): _description_. Defaults to 1.
+            savefile (str, optional): _description_. Defaults to 'ani.mp4'.
+        """
         fig, ax = plt.subplots()
+        start, end = 1, 1
 
         # Draw the suns
         for sun in self.suns:
@@ -67,22 +92,28 @@ class NSolarSystem:
 
         # Draw the planet's trajectory
         step = 1
-        ffwd = 50_000
         traj = np.array(self.history)
         traj_X, traj_Y = traj.T
         def planetary_motion(i):
+            if start == 1:
+                start *= time.time()
             s = (i - 1) * step * ffwd
+            if s >= len(traj_X): return
+
             e = i * step * ffwd
             plt.plot(traj_X[s:e], traj_Y[s:e], 'k')
-            
+
             # Draw the last planet location
             if e >= len(traj_X):
+                if end == 1:
+                    end *= time.time()
                 my_x, my_y = self.body
                 plt.scatter([my_x], [my_y], [10], c='blue')
 
         animator = ani.FuncAnimation(fig, planetary_motion, interval=step, save_count=(len(traj_X) // ffwd))
         animator.save(savefile, ani.FFMpegWriter(fps=60))
         plt.show()
+        print(f"Animated {self.print()} in {time_taken(start, end)}")
 
 
 def timeit(f):
@@ -99,9 +130,11 @@ def timeit(f):
 
     return m
 
-@timeit
-def main():
+
+def parse_cli_args():
     parser = argparse.ArgumentParser()
+
+    # data gen args
     parser.add_argument('--xoffset', default=0, type=int)
     parser.add_argument('--yoffset', default=0, type=int)
     parser.add_argument('--clicks', default=130_000_000, type=int)
@@ -109,18 +142,32 @@ def main():
     parser.add_argument('--seed', action='store_true')
     parser.add_argument('--save', action='store_true')
     parser.add_argument('--load', action='store_true')
+    parser.add_argument('--root', default='.', type=str)
     parser.add_argument('--cont', action='store_true')
     parser.add_argument('--draw', action='store_true')
-    parser.add_argument('--multidraw', type=int, nargs='+')
-    args = parser.parse_args()
 
+    # data sparser args
+    parser.add_argument('--tags', type=str, nargs='+')
+    parser.add_argument('--sparsity', default=50_000, type=int)
+
+    args = parser.parse_args()
+    return args
+
+
+@timeit
+def data_gen(args):
     fname = f"dump{args.tag}.bin"
+    fpath = os.path.join(args.root, fname)
 
     if args.load:
-        with open(fname, 'rb') as fh:
+        start = time.time()
+        with open(fpath, 'rb') as fh:
             sys = pickle.load(fh)
+        end = time.time()
+        print(f"Loaded {fname} in {time_taken(start, end)}")
 
     if not args.load:
+        start = time.time()
         if args.seed:
             with open("seed.bin", 'rb') as fh:
                 wiggle = np.float64(1e-6)
@@ -131,20 +178,65 @@ def main():
                 sys.body = np.array([s_x, s_y], dtype=np.float64)
         else:
             sys = NSolarSystem.rand_init(v=np.array([1e-6, 1e-6]), n=3)
+        end = time.time()
+        print(f"Generating starting point in {time_taken(start, end)}")
 
     if not args.load or args.cont:
+        start = time.time()
         sys.ticktock(args.clicks)
+        end = time.time()
+        print(f"Simulated {args.clicks} steps in {time_taken(start, end)}")
 
     sys.print()
 
     if args.save:
-        with open(fname, 'wb') as fh:
+        start = time.time()
+        with open(fpath, 'wb') as fh:
             p = pickle.Pickler(fh)
             p.fast = True
             p.dump(sys)
+        end = time.time()
+        print(f"Saved simulation results in {time_taken(start, end)}")
     
     if args.draw:
+        start = time.time()
         sys.draw_2d()
+        end = time.time()
+
+
+@timeit
+def data_sparser(args):
+    fnames = {f'dump{x}.bin': f'dump{x}_sp{args.sparsity}.bin' for x in args.tags}
+    fpaths = { os.path.join(args.root, k): os.path.join(args.root, v) for k, v in fnames.items() }
+    for in_fpath, out_fpath in fpaths.items():
+        start = time.time()
+        with open(in_fpath, 'rb') as fh:
+            sys = pickle.load(fh)
+        end = time.time()
+        print(f"Loaded {in_fpath} in {time_taken(start, end)}")
+        
+        start = time.time()
+        sys.history = sys.history[::args.sparsity]
+        end = time.time()
+        print(f"Sparsified data in {time_taken(start, end)}")
+
+        start = time.time()
+        with open(out_fpath, 'wb') as fh:
+            p = pickle.Pickler(fh)
+            p.fast = True
+            p.dump(sys)
+        end = time.time()
+        print(f"Saved {out_fpath} in {time_taken(start, end)}")
+
+
+def orbit_artist(args):
+    fnames = [f'dump{x}.bin' for x in args.tags]
+    fpaths = [os.path.join(args.root, x) for x in fnames]
+    for fpath in fpaths:
+        sparsity = int(fpath.replace('.bin', '').split('_sp')[1])
+        with open(fpath, 'rb') as fh:
+            sys = pickle.load(fh)
+            sys.draw_2d(ffwd=max(2, 50_000 // sparsity))
 
 
 def scratch_main():
@@ -155,5 +247,10 @@ def scratch_main():
 
 
 if __name__ == '__main__':
-    main()
-    # scratch_main()
+    args = parse_cli_args()
+    if args.tags:
+        data_sparser(args)
+    elif args.draw:
+        orbit_artist(args)
+    else:
+        data_gen(args)
