@@ -135,6 +135,7 @@ def parse_cli_args():
     parser = argparse.ArgumentParser()
 
     # data gen args
+    parser.add_argument('--mode', required=True, choices=('sim', 'spar', 'draw'), type=str)
     parser.add_argument('--xoffset', default=0, type=int)
     parser.add_argument('--yoffset', default=0, type=int)
     parser.add_argument('--clicks', default=130_000_000, type=int)
@@ -148,7 +149,9 @@ def parse_cli_args():
 
     # data sparser args
     parser.add_argument('--tags', type=str, nargs='+')
+    parser.add_argument('--animate', action='store_true')
     parser.add_argument('--sparsity', default=50_000, type=int)
+    parser.add_argument('--savefile', type=str)
 
     args = parser.parse_args()
     return args
@@ -205,7 +208,7 @@ def data_gen(args):
 
 
 @timeit
-def data_sparser(args):
+def data_sparser(args):     # TODO: try keeping delta_r of <= 1e-2
     fnames = {f'dump{x}.bin': f'dump{x}_sp{args.sparsity}.bin' for x in args.tags}
     fpaths = { os.path.join(args.root, k): os.path.join(args.root, v) for k, v in fnames.items() }
     for in_fpath, out_fpath in fpaths.items():
@@ -230,27 +233,70 @@ def data_sparser(args):
 
 
 def orbit_artist(args):
-    fnames = [f'dump{x}.bin' for x in args.tags]
+    fig, ax = plt.subplots()
+    are_suns_drawn = False
+    fnames = [f'dump{x}_sp{args.sparsity}.bin' for x in args.tags]
     fpaths = [os.path.join(args.root, x) for x in fnames]
+
+    trajs = []
+    start = time.time()
     for fpath in fpaths:
-        sparsity = int(fpath.replace('.bin', '').split('_sp')[1])
         with open(fpath, 'rb') as fh:
             sys = pickle.load(fh)
-            sys.draw_2d(ffwd=max(2, 50_000 // sparsity))
 
+            if not are_suns_drawn:
+                # Draw the suns
+                for sun in sys.suns:
+                    sun_x, sun_y = sun
+                    plt.scatter([sun_x], [sun_y], [50], c='black')  # third unnamed arg is size
+                are_suns_drawn = True
 
-def scratch_main():
-    with open("seed.bin", 'rb') as fh:
-        sys = pickle.load(fh)
+            sys.history = np.array(sys.history).T
+            trajs.append(sys.history)
+    end = time.time()
+    print(f"Loaded input files in {time_taken(start, end)}")
+    colors = ['lime', 'cadetblue', 'sienna']
+    inv_colors = ['orange', 'red', 'lightsalmon']
 
-    import pdb; pdb.set_trace()
+    if args.animate:
+        longest_path = max(len(x) for x, _ in trajs)
+        fps = 60
+        print(f"Preparing to animate {longest_path} frames at {fps}")
+
+        colors = ['silver', 'cyan', 'orange']
+        inv_colors = ['gold', 'red', 'blue']
+
+        def planetary_motions(i):
+            if i > longest_path: return
+
+            for idx, traj in enumerate(trajs):
+                # Draw the last planet location
+                if i * 2 >= len(traj[0]):
+                    plt.scatter([traj[0][-1]], [traj[1][-1]], [10], c=colors[idx % len(inv_colors)])
+                    continue
+
+                plt.plot(traj[0][i : i+2], traj[1][i : i+2], 'k') #colors[idx % len(colors)])
+
+        start = time.time()
+        animator = ani.FuncAnimation(fig, planetary_motions, interval=1, save_count=(longest_path // 2 + 1))
+        if args.savefile: animator.save(args.savefile, ani.FFMpegWriter(fps=fps))
+        plt.show()
+        end = time.time()
+        print(f"Animated orbitals in {time_taken(start, end)}")
+
+    else:
+        for idx, traj in enumerate(trajs):
+            plt.plot(traj[0], traj[1], colors[idx % len(colors)], linewidth=1)
+            plt.scatter([traj[0][-1]], [traj[1][-1]], [10], c=inv_colors[idx % len(inv_colors)])
+
+        plt.show()
 
 
 if __name__ == '__main__':
     args = parse_cli_args()
-    if args.tags:
+    if args.mode == 'spar':
         data_sparser(args)
-    elif args.draw:
+    elif args.mode == 'draw':
         orbit_artist(args)
-    else:
+    elif args.mode == 'sim':
         data_gen(args)
